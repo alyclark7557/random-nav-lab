@@ -9,7 +9,7 @@ Version: 10/29/2020
 import argparse
 import time
 import numpy as np
-
+import random
 import rclpy
 import rclpy.node
 from rclpy.action.client import ActionClient
@@ -25,14 +25,14 @@ from jmu_ros2_util import map_utils, transformations
 
 
 class NavNode(rclpy.node.Node):
-
     def __init__(self, x, y, theta, timeout):
-        super().__init__('nav_demo')
+        super().__init__('random_nav')
 
         #self.create_timer(.1, self.timer_callback)
 
         latching_qos = QoSProfile(depth=1,
                 durability=QoSDurabilityPolicy.RMW_QOS_POLICY_DURABILITY_TRANSIENT_LOCAL)
+        self.map = None
         self.create_subscription(OccupancyGrid, 'map', self.map_callback, 
                 qos_profile=latching_qos)
 
@@ -64,8 +64,8 @@ class NavNode(rclpy.node.Node):
 
         self.cancel_future = None
         self.is_done = False
-        self.map = None
-        self.goal_future = self.ac.send_goal_async(self.goal)
+        new_goal = self.random_point()
+        self.goal_future = self.ac.send_goal_async(new_goal)
 
         self.create_timer(.1, self.timer_callback)
         self.future_event = Future()
@@ -123,9 +123,8 @@ class NavNode(rclpy.node.Node):
 
             if self.goal_future.result().status == GoalStatus.STATUS_SUCCEEDED:
                 self.get_logger().info("NAVIGATION SERVER REPORTS SUCCESS. EXITING!")
-                self.ac.destroy()
-                self.is_done = True
                 self.future_event.set_result(None)
+                self.send_goal()
 
             if self.goal_future.result().status == GoalStatus.STATUS_ABORTED:
                 self.get_logger().info("NAVIGATION SERVER HAS ABORTED. EXITING!")
@@ -137,6 +136,20 @@ class NavNode(rclpy.node.Node):
                 self.get_logger().info("TAKING TOO LONG. CANCELLING GOAL!")
                 self.cancel_future = self.goal_future.result().cancel_goal_async()
                 self.future_event.set_result(None)
+
+    def random_point(self):
+        if self.map == None:
+            self.get_logger().info("MAP IS LOADING!")
+            return
+        goal = None
+        while (goal == None):
+            goal_x = random.randrange(0, self.map.width)
+            goal_y = random.randrange(0, self.map.height)
+            row, col = self.map.cell_index(goal_x, goal_y)
+            cell = self.map.get_cell(row, col)
+            if (cell == 0):
+                goal = cell
+                return cell
 
 def main():
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter,
@@ -155,9 +168,9 @@ def main():
 
     node = NavNode(args.x, args.y, args.theta, args.timeout)
 
-    future = node.send_goal()
-
-    rclpy.spin_until_future_complete(node,future)
+#    future = node.send_goal()
+# Make it do things
+#    rclpy.spin_until_future_complete(node,future)
 
     node.destroy_node()
     rclpy.shutdown()
